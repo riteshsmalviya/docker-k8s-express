@@ -59,23 +59,19 @@ pipeline {
         stage('Pull and Load Image') {
             steps {
                 script {
-                    echo 'Pulling image from Docker Hub and loading to Kind...'
+                    echo 'Pulling latest image from Docker Hub and loading to Kind...'
                     bat """
                         REM Pull the latest image from Docker Hub
                         echo Pulling ${DOCKER_HUB_REPO}:latest from Docker Hub...
                         docker pull ${DOCKER_HUB_REPO}:latest
                         
-                        REM Tag it with build number for tracking
-                        docker tag ${DOCKER_HUB_REPO}:latest ${DOCKER_HUB_REPO}:${IMAGE_TAG}
-                        
-                        REM Load images into Kind cluster
-                        echo Loading images into Kind cluster...
+                        REM Load latest image into Kind cluster
+                        echo Loading latest image into Kind cluster...
                         kind load docker-image ${DOCKER_HUB_REPO}:latest --name ${CLUSTER_NAME}
-                        kind load docker-image ${DOCKER_HUB_REPO}:${IMAGE_TAG} --name ${CLUSTER_NAME}
                         
-                        REM Verify images are loaded in Kind
-                        echo Verifying images in Kind cluster...
-                        docker exec dev-control-plane crictl images | findstr docker-k8s-express || echo Images loaded successfully
+                        REM Verify image is loaded in Kind
+                        echo Verifying image in Kind cluster...
+                        docker exec dev-control-plane crictl images | findstr docker-k8s-express || echo Image loaded successfully
                     """
                 }
             }
@@ -86,15 +82,15 @@ pipeline {
                 script {
                     echo 'Deploying to Kubernetes...'
                     bat """
-                        REM Apply deployment and service
+                        REM Apply deployment and service  
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
                         
-                        REM Since image is already loaded, just restart deployment
-                        echo Restarting deployment to use updated image...
+                        REM Just restart deployment to use the latest image
+                        echo Restarting deployment to use latest image...
                         kubectl rollout restart deployment/express-deployment
                         
-                        REM Wait for rollout to complete
+                        REM Wait for deployment to be ready
                         echo Waiting for deployment to be ready...
                         set /a attempts=0
                         :checkpod
@@ -162,7 +158,7 @@ pipeline {
         success {
             echo '🎉 Pipeline completed successfully!'
             echo "✅ Kind cluster: ${CLUSTER_NAME} is running"
-            echo "✅ Image built: ${DOCKER_HUB_REPO}:${IMAGE_TAG}"
+            echo "✅ Using image: ${DOCKER_HUB_REPO}:latest"
             echo "✅ Deployed to Kubernetes"
             echo "✅ Access your app at: http://localhost:30080"
         }
@@ -172,12 +168,8 @@ pipeline {
         }
         always {
             script {
-                echo 'Cleaning up...'
-                try {
-                    bat "docker rmi ${DOCKER_HUB_REPO}:${IMAGE_TAG} 2>nul"
-                } catch (Exception e) {
-                    echo "Local tagged image cleanup completed (or no image to clean)"
-                }
+                echo 'Pipeline cleanup completed'
+                // No local image cleanup needed since we only use :latest
             }
         }
     }
