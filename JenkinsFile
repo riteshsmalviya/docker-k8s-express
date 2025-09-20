@@ -81,36 +81,21 @@ pipeline {
                 script {
                     echo 'Deploying to Kubernetes...'
                     bat """
-                        REM Apply deployment and service  
+                        REM Delete old deployment to avoid image tag conflicts
+                        echo Cleaning up old deployment...
+                        kubectl delete deployment express-deployment --ignore-not-found=true
+                        
+                        REM Wait for cleanup
+                        timeout /t 5 /nobreak > nul
+                        
+                        REM Apply fresh deployment and service  
+                        echo Applying fresh deployment...
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
                         
-                        REM Just restart deployment to use the latest image
-                        echo Restarting deployment to use latest image...
-                        kubectl rollout restart deployment/express-deployment
-                        
                         REM Wait for deployment to be ready
                         echo Waiting for deployment to be ready...
-                        set /a attempts=0
-                        :checkpod
-                        set /a attempts+=1
-                        kubectl get pods -l app=express-app --no-headers | findstr Running >nul
-                        if %ERRORLEVEL% EQU 0 goto podready
-                        kubectl get pods -l app=express-app --no-headers | findstr ErrImagePull >nul
-                        if %ERRORLEVEL% EQU 0 (
-                            echo ERROR: Image pull failed
-                            kubectl describe pods -l app=express-app
-                            goto podready
-                        )
-                        if %attempts% GEQ 30 (
-                            echo Timeout waiting for pod, checking status...
-                            kubectl get pods -l app=express-app
-                            kubectl describe pods -l app=express-app
-                            goto podready
-                        )
-                        timeout /t 4 /nobreak > nul
-                        goto checkpod
-                        :podready
+                        kubectl wait --for=condition=available --timeout=300s deployment/express-deployment
                         
                         echo Deployment completed!
                         kubectl get pods -l app=express-app
