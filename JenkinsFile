@@ -3,29 +3,7 @@ pipeline {
     
     environment {
         DOCKER_HUB_REPO = 'riteshm03/docker-k8s-express'
-        IMAGE_T    post {
-        success {
-            echo '🎉 Pipeline completed successfully!'
-            echo "✅ Kind cluster: ${CLUSTER_NAME} is running"
-            echo "✅ Image built: ${DOCKER_HUB_REPO}:${IMAGE_TAG}"
-            echo "✅ Deployed to Kubernetes"
-            echo "✅ Access your app at: http://localhost:30080"
-        }
-        failure {
-            echo '❌ Pipeline failed!'
-            echo "Check logs above for details"
-        }
-        always {
-            script {
-                echo 'Cleaning up local images...'
-                try {
-                    bat "docker rmi ${DOCKER_HUB_REPO}:${IMAGE_TAG} 2>nul"
-                } catch (Exception e) {
-                    echo "Image cleanup completed (or no image to clean)"
-                }
-            }
-        }
-    }MBER}"
+        IMAGE_TAG = "${BUILD_NUMBER}"
         CLUSTER_NAME = 'dev'
     }
     
@@ -147,18 +125,25 @@ pipeline {
     
     post {
         success {
-            echo 'Pipeline completed successfully!'
-            echo "Kind cluster: ${CLUSTER_NAME} is running"
-            echo "Image built: ${DOCKER_HUB_REPO}:${IMAGE_TAG}"
-            echo "Deployed to Kubernetes"
-            echo "Access your app at: http://localhost:30080"
+            echo '🎉 Pipeline completed successfully!'
+            echo "✅ Kind cluster: ${CLUSTER_NAME} is running"
+            echo "✅ Image built: ${DOCKER_HUB_REPO}:${IMAGE_TAG}"
+            echo "✅ Deployed to Kubernetes"
+            echo "✅ Access your app at: http://localhost:30080"
         }
         failure {
-            echo 'Pipeline failed!'
+            echo '❌ Pipeline failed!'
+            echo "Check logs above for details"
         }
         always {
-            echo 'Cleaning up local images...'
-            bat "docker rmi ${DOCKER_HUB_REPO}:${IMAGE_TAG} 2>nul || echo Image cleanup completed"
+            script {
+                echo 'Cleaning up local images...'
+                try {
+                    bat "docker rmi ${DOCKER_HUB_REPO}:${IMAGE_TAG} 2>nul"
+                } catch (Exception e) {
+                    echo "Image cleanup completed (or no image to clean)"
+                }
+            }
         }
     }
 }
