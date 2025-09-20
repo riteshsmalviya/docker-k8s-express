@@ -32,7 +32,9 @@ pipeline {
                     echo 'Stopping running applications...'
                     bat """
                         REM Try to set kubectl context if cluster exists
-                        kind get clusters | findstr ${CLUSTER_NAME}
+                        echo Checking for existing clusters...
+                        kind get clusters > temp_clusters.txt 2>nul
+                        findstr /C:"${CLUSTER_NAME}" temp_clusters.txt >nul 2>&1
                         if %ERRORLEVEL% EQU 0 (
                             echo Setting up kubectl context...
                             kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig 2>nul
@@ -53,6 +55,7 @@ pipeline {
                         ) else (
                             echo No cluster found or cluster already deleted
                         )
+                        del temp_clusters.txt 2>nul
                     """
                 }
             }
@@ -64,7 +67,9 @@ pipeline {
                     echo 'Deleting Kind cluster...'
                     bat """
                         REM Check if cluster exists
-                        kind get clusters | findstr ${CLUSTER_NAME}
+                        echo Checking for cluster: ${CLUSTER_NAME}
+                        kind get clusters > temp_clusters.txt 2>nul
+                        findstr /C:"${CLUSTER_NAME}" temp_clusters.txt >nul 2>&1
                         if %ERRORLEVEL% EQU 0 (
                             echo Deleting Kind cluster: ${CLUSTER_NAME}
                             kind delete cluster --name ${CLUSTER_NAME}
@@ -72,15 +77,18 @@ pipeline {
                         ) else (
                             echo Cluster ${CLUSTER_NAME} not found - may already be deleted
                         )
+                        del temp_clusters.txt 2>nul
                         
                         REM Verify cluster is gone
                         echo Verifying cluster deletion...
-                        kind get clusters | findstr ${CLUSTER_NAME}
+                        kind get clusters > temp_clusters_check.txt 2>nul
+                        findstr /C:"${CLUSTER_NAME}" temp_clusters_check.txt >nul 2>&1
                         if %ERRORLEVEL% EQU 0 (
                             echo WARNING: Cluster still exists!
                         ) else (
                             echo ✅ Cluster successfully deleted
                         )
+                        del temp_clusters_check.txt 2>nul
                     """
                 }
             }
@@ -150,10 +158,12 @@ pipeline {
                         
                         REM Check Kind clusters
                         echo Checking Kind clusters:
-                        kind get clusters 2>nul
-                        if %ERRORLEVEL% NEQ 0 (
-                            echo No Kind clusters found
+                        kind get clusters > temp_final_check.txt 2>nul
+                        if exist temp_final_check.txt (
+                            for /f %%i in (temp_final_check.txt) do echo Found cluster: %%i
+                            del temp_final_check.txt
                         )
+                        echo Kind cluster check completed
                         
                         REM Check Docker containers
                         echo Checking Docker containers:
@@ -164,20 +174,25 @@ pipeline {
                         
                         REM Check port usage
                         echo Checking port 3000:
-                        netstat -ano | findstr :3000
+                        netstat -ano | findstr :3000 >nul 2>&1
                         if %ERRORLEVEL% NEQ 0 (
                             echo Port 3000 is free
+                        ) else (
+                            echo Port 3000 is still in use
                         )
                         
                         REM Check processes
                         echo Checking kubectl processes:
-                        tasklist | findstr kubectl
+                        tasklist | findstr kubectl >nul 2>&1
                         if %ERRORLEVEL% NEQ 0 (
                             echo No kubectl processes running
+                        ) else (
+                            echo kubectl processes still running
                         )
                         
                         echo === CLEANUP COMPLETE ===
                         echo All infrastructure has been successfully removed!
+                        exit /b 0
                     """
                 }
             }
