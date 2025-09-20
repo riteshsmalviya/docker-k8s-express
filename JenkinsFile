@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_HUB_REPO = 'riteshm03/docker-k8s-express'
+        IMAGE_TAG = "${BUILD_NUMBER}"
+        CLUSTER_NAME = 'dev'
+    }
+    
+    stages {
+        stage('Setup Kind Cluster') {
+            steps {
+                script {
+                    echo 'Setting up Kind cluster...'
+                    bat """
+                        REM Check if cluster exists
+                        kind get clusters | findstr ${CLUSTER_NAME}
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo Creating Kind cluster: ${CLUSTER_NAME}
+                            kind create cluster --name ${CLUSTER_NAME}
+                        ) else (
+                            echo Kind cluster ${CLUSTER_NAME} already exists
+                        )
+                        
+                        REM Verify cluster is ready
+                        kubectl cluster-info --context kind-${CLUSTER_NAME}
+                        kubectl get nodes
+                    """
+                }
+            }
+        }
+        
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code from GitHub...'
+                checkout scm
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo 'Building Docker image...'
+                    bat "docker build -t ${DOCKER_HUB_REPO}:${IMAGE_TAG} ."
+                    bat "docker tag ${DOCKER_HUB_REPO}:${IMAGE_TAG} ${DOCKER_HUB_REPO}:latest"
+                }
+            }
+        }
+        
+        stage('Load Image to Kind') {
+            steps {
+                script {
+                    echo 'Loading image into Kind cluster...'
+                    bat "kind load docker-image ${DOCKER_HUB_REPO}:${IMAGE_TAG} --name ${CLUSTER_NAME}"
+                    bat "kind load docker-image ${DOCKER_HUB_REPO}:latest --name ${CLUSTER_NAME}"
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    echo 'Deploying to Kubernetes...'
+                    bat """
+                        kubectl apply -f k8s/deployment.yaml
+                        kubectl apply -f k8s/service.yaml
+                        kubectl set image deployment/express-deployment express=${DOCKER_HUB_REPO}:${IMAGE_TAG} --record
+                        kubectl rollout status deployment/express-deployment
+                    """
+                }
+            }
+        }
+        
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    echo 'Verifying deployment...'
+                    bat """
+                        kubectl get pods -l app=express-app
+                        kubectl get services express-service
+                        echo Application is accessible at: http://localhost:30080
+                        echo Or use port-forward: kubectl port-forward service/express-service 3000:3000
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo 'Pipeline completed successfully!'
+            echo "Kind cluster: ${CLUSTER_NAME} is running"
+            echo "Image built: ${DOCKER_HUB_REPO}:${IMAGE_TAG}"
+            echo "Deployed to Kubernetes"
+            echo "Access your app at: http://localhost:30080"
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+        always {
+            echo 'Cleaning up local images...'
+            bat "docker rmi ${DOCKER_HUB_REPO}:${IMAGE_TAG} 2>nul || echo Image cleanup completed"
+        }
+    }
+}

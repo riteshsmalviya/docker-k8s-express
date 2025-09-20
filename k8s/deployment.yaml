@@ -14,6 +14,6 @@ spec:
     spec:
       containers:
       - name: express
-        image: riteshrmalviya/docker-k8s-express:latest
+        image: riteshm03/docker-k8s-express:latest
         ports:
         - containerPort: 3000

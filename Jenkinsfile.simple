@@ -1,0 +1,56 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_HUB_REPO = 'riteshm03/docker-k8s-express'
+        DOCKER_HUB_CREDENTIALS = 'dockerhub-credentials' // Configure this in Jenkins Credentials
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code from GitHub...'
+                checkout scm
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo 'Building Docker image...'
+                    def image = docker.build("${DOCKER_HUB_REPO}:latest")
+                    def taggedImage = docker.build("${DOCKER_HUB_REPO}:${BUILD_NUMBER}")
+                }
+            }
+        }
+        
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    echo 'Pushing Docker image to Docker Hub...'
+                    docker.withRegistry('https://registry.hub.docker.com', DOCKER_HUB_CREDENTIALS) {
+                        def image = docker.image("${DOCKER_HUB_REPO}:latest")
+                        image.push()
+                        image.push("${BUILD_NUMBER}")
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '🎉 Pipeline completed successfully!'
+            echo "✅ Image pushed to Docker Hub: ${DOCKER_HUB_REPO}:latest"
+            echo "✅ Image also tagged as: ${DOCKER_HUB_REPO}:${BUILD_NUMBER}"
+        }
+        failure {
+            echo '❌ Pipeline failed!'
+        }
+        always {
+            echo 'Cleaning up local images...'
+            sh "docker rmi ${DOCKER_HUB_REPO}:latest || true"
+            sh "docker rmi ${DOCKER_HUB_REPO}:${BUILD_NUMBER} || true"
+        }
+    }
+}
