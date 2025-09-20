@@ -19,34 +19,23 @@ pipeline {
                             echo Creating Kind cluster: ${CLUSTER_NAME}
                             kind create cluster --name ${CLUSTER_NAME}
                         ) else (
-                            echo Kind cluster ${CLUSTER_NAME} already exists
-                            REM Recreate cluster to ensure accessibility from Jenkins
-                            echo Recreating cluster for Jenkins accessibility...
-                            kind delete cluster --name ${CLUSTER_NAME}
-                            kind create cluster --name ${CLUSTER_NAME}
+                            echo Kind cluster ${CLUSTER_NAME} already exists - reusing it
                         )
-                        
-                        REM Wait a moment for cluster to be ready
-                        timeout /t 10 /nobreak > nul
                         
                         REM Set kubectl context to Kind cluster
                         kubectl config use-context kind-${CLUSTER_NAME}
                         
-                        REM Verify cluster is ready with retry
-                        set /a attempts=0
-                        :retry
-                        set /a attempts+=1
-                        echo Attempt %attempts% to connect to cluster...
+                        REM Verify cluster is ready
                         kubectl get nodes
-                        if %ERRORLEVEL% EQU 0 goto success
-                        if %attempts% LSS 5 (
-                            timeout /t 5 /nobreak > nul
-                            goto retry
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo Cluster not accessible, recreating...
+                            kind delete cluster --name ${CLUSTER_NAME}
+                            kind create cluster --name ${CLUSTER_NAME}
+                            kubectl config use-context kind-${CLUSTER_NAME}
                         )
-                        echo Failed to connect to cluster after 5 attempts
-                        exit /b 1
-                        :success
+                        
                         echo Cluster is ready!
+                        kubectl get nodes
                     """
                 }
             }
@@ -88,14 +77,32 @@ pipeline {
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
                         
-                        REM Force delete any stuck pods first
-                        kubectl delete pods -l app=express-app --force --grace-period=0 2>nul || echo No pods to force delete
+                        REM Check if deployment exists and has running pods
+                        kubectl get deployment express-deployment 2>nul
+                        if %ERRORLEVEL% EQU 0 (
+                            echo Deployment exists, checking for stuck pods...
+                            kubectl get pods -l app=express-app --field-selector=status.phase!=Running --no-headers 2>nul | findstr . >nul
+                            if %ERRORLEVEL% EQU 0 (
+                                echo Found stuck pods, force deleting them...
+                                kubectl delete pods -l app=express-app --force --grace-period=0 2>nul || echo No pods to delete
+                                timeout /t 5 /nobreak > nul
+                            )
+                        )
                         
                         REM Update deployment with new image
                         kubectl set image deployment/express-deployment express=${DOCKER_HUB_REPO}:${IMAGE_TAG} --record
                         
-                        REM Wait for rollout with timeout
-                        kubectl rollout status deployment/express-deployment --timeout=300s
+                        REM Wait for rollout with shorter timeout and better handling
+                        echo Waiting for deployment to rollout...
+                        kubectl rollout status deployment/express-deployment --timeout=180s
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo Rollout timed out, checking status...
+                            kubectl get pods -l app=express-app
+                            kubectl describe deployment express-deployment
+                            echo Forcing pod restart...
+                            kubectl delete pods -l app=express-app --force --grace-period=0
+                            kubectl rollout status deployment/express-deployment --timeout=120s
+                        )
                     """
                 }
             }
