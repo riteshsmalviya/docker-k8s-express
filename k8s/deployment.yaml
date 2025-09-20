@@ -20,6 +20,7 @@ spec:
       containers:
       - name: express
         image: riteshm03/docker-k8s-express:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3000
         lifecycle:
