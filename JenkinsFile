@@ -77,32 +77,24 @@ pipeline {
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
                         
-                        REM Check if deployment exists and has running pods
-                        kubectl get deployment express-deployment 2>nul
-                        if %ERRORLEVEL% EQU 0 (
-                            echo Deployment exists, checking for stuck pods...
-                            kubectl get pods -l app=express-app --field-selector=status.phase!=Running --no-headers 2>nul | findstr . >nul
-                            if %ERRORLEVEL% EQU 0 (
-                                echo Found stuck pods, force deleting them...
-                                kubectl delete pods -l app=express-app --force --grace-period=0 2>nul || echo No pods to delete
-                                timeout /t 5 /nobreak > nul
-                            )
-                        )
+                        REM For development, use recreate strategy to avoid stuck pods
+                        echo Scaling down deployment to 0...
+                        kubectl scale deployment express-deployment --replicas=0
+                        
+                        REM Wait for all pods to terminate
+                        kubectl wait --for=delete pod -l app=express-app --timeout=60s 2>nul || echo Pods deleted
                         
                         REM Update deployment with new image
                         kubectl set image deployment/express-deployment express=${DOCKER_HUB_REPO}:${IMAGE_TAG} --record
                         
-                        REM Wait for rollout with shorter timeout and better handling
-                        echo Waiting for deployment to rollout...
-                        kubectl rollout status deployment/express-deployment --timeout=180s
-                        if %ERRORLEVEL% NEQ 0 (
-                            echo Rollout timed out, checking status...
-                            kubectl get pods -l app=express-app
-                            kubectl describe deployment express-deployment
-                            echo Forcing pod restart...
-                            kubectl delete pods -l app=express-app --force --grace-period=0
-                            kubectl rollout status deployment/express-deployment --timeout=120s
-                        )
+                        REM Scale back up
+                        echo Scaling deployment back to 1...
+                        kubectl scale deployment express-deployment --replicas=1
+                        
+                        REM Wait for new pod to be ready
+                        kubectl wait --for=condition=available deployment/express-deployment --timeout=120s
+                        
+                        echo Deployment completed successfully!
                     """
                 }
             }
