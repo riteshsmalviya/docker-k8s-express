@@ -1,16 +1,15 @@
 # Docker K8s Express App
 
-A production-ready Express.js application designed for Docker and Kubernetes deployment.
+A production-ready Express.js application designed for Docker and Kubernetes deployment with beautiful CI/CD pipeline visualization.
 
 ## Features
 
-- ✅ Express.js server with security middleware
-- ✅ CORS and Helmet for security
-- ✅ Morgan logging
+- ✅ Express.js server with clean architecture
+- ✅ Beautiful CI/CD pipeline visualization page
+- ✅ Professional responsive design
 - ✅ Environment variable support
-- ✅ Health check endpoint
-- ✅ Error handling middleware
-- ✅ Sample API routes
+- ✅ Ready for Docker containerization
+- ✅ Kubernetes deployment ready
 
 ## Quick Start
 
@@ -26,26 +25,33 @@ A production-ready Express.js application designed for Docker and Kubernetes dep
 npm install
 ```
 
-2. Copy environment file:
-```bash
-copy .env.example .env
-```
-
-3. Start development server:
+2. Start development server:
 ```bash
 npm run dev
 ```
 
-4. Start production server:
+3. Start production server:
 ```bash
 npm start
 ```
 
+4. Open your browser and visit:
+```
+http://localhost:3000
+```
+
+## What You'll See
+
+The application displays a beautiful CI/CD pipeline visualization showing:
+
+1. **Development & Source Control** - Express.js app development
+2. **Jenkins CI/CD Pipeline** - Automated build and deployment
+3. **Docker Containerization** - Application packaging
+4. **Kubernetes Deployment** - Container orchestration
+
 ## API Endpoints
 
-- `GET /health` - Health check endpoint
-- `GET /api` - API information and available endpoints
-- `GET /api/users` - Sample users endpoint
+- `GET /` - Beautiful CI/CD pipeline visualization page
 
 ## Scripts
 
@@ -67,12 +73,29 @@ npm start
 ├── package.json        # Dependencies and scripts
 ├── .env                # Environment variables
 ├── .gitignore          # Git ignore rules
+├── Dockerfile          # Docker configuration
 └── README.md           # This file
 ```
 
+## Technology Stack
+
+- **Express.js** - Fast web framework for Node.js
+- **Node.js** - JavaScript runtime
+- **Docker** - Container platform (ready for containerization)
+- **Kubernetes** - Container orchestration (ready for deployment)
+- **Jenkins** - CI/CD automation (pipeline visualization)
+
 ## Docker Support
 
-This application is designed to work with Docker and Kubernetes. Docker configuration files will be added in future updates.
+This application is designed to work with Docker and Kubernetes. The Dockerfile is included for containerization.
+
+## CI/CD Pipeline
+
+The application demonstrates a complete DevOps pipeline:
+1. Code development and Git commits
+2. Jenkins automated builds
+3. Docker image creation
+4. Kubernetes deployment
 
 ## Contributing
 
