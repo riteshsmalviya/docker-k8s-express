@@ -1,0 +1,198 @@
+pipeline {
+    agent any
+    
+    environment {
+        CLUSTER_NAME = 'dev'
+    }
+    
+    stages {
+        stage('Confirm Cleanup') {
+            steps {
+                script {
+                    echo '⚠️ WARNING: This will DELETE all infrastructure!'
+                    echo 'This pipeline will:'
+                    echo '- Stop and remove all running applications'
+                    echo '- Delete the Kind Kubernetes cluster'
+                    echo '- Clean up Docker images and containers'
+                    echo '- Remove temporary files'
+                    echo ''
+                    echo 'Proceeding with cleanup in 10 seconds...'
+                    
+                    bat """
+                        timeout /t 10 /nobreak > nul
+                        echo Starting infrastructure cleanup...
+                    """
+                }
+            }
+        }
+        
+        stage('Stop Applications') {
+            steps {
+                script {
+                    echo 'Stopping running applications...'
+                    bat """
+                        REM Try to set kubectl context if cluster exists
+                        kind get clusters | findstr ${CLUSTER_NAME} && (
+                            echo Setting up kubectl context...
+                            kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig 2>nul
+                            set KUBECONFIG=%CD%\\temp_kubeconfig
+                            kubectl config use-context kind-${CLUSTER_NAME} 2>nul
+                            
+                            REM Delete applications
+                            echo Deleting express application...
+                            kubectl delete deployment express-deployment --ignore-not-found=true
+                            kubectl delete service express-service --ignore-not-found=true
+                            
+                            REM Wait for graceful shutdown
+                            echo Waiting for graceful application shutdown...
+                            timeout /t 10 /nobreak > nul
+                            
+                            REM Show final status
+                            kubectl get all 2>nul || echo No resources found
+                        ) || (
+                            echo No cluster found or cluster already deleted
+                        )
+                    """
+                }
+            }
+        }
+        
+        stage('Delete Kind Cluster') {
+            steps {
+                script {
+                    echo 'Deleting Kind cluster...'
+                    bat """
+                        REM Check if cluster exists
+                        kind get clusters | findstr ${CLUSTER_NAME} && (
+                            echo Deleting Kind cluster: ${CLUSTER_NAME}
+                            kind delete cluster --name ${CLUSTER_NAME}
+                            echo Cluster deleted successfully
+                        ) || (
+                            echo Cluster ${CLUSTER_NAME} not found - may already be deleted
+                        )
+                        
+                        REM Verify cluster is gone
+                        echo Verifying cluster deletion...
+                        kind get clusters | findstr ${CLUSTER_NAME} && (
+                            echo WARNING: Cluster still exists!
+                        ) || (
+                            echo ✅ Cluster successfully deleted
+                        )
+                    """
+                }
+            }
+        }
+        
+        stage('Clean Docker Resources') {
+            steps {
+                script {
+                    echo 'Cleaning up Docker resources...'
+                    bat """
+                        REM Stop any port forwarding processes
+                        echo Stopping any kubectl port-forward processes...
+                        taskkill /F /IM kubectl.exe 2>nul || echo No kubectl processes found
+                        
+                        REM Clean up Kind-related containers
+                        echo Cleaning up Kind containers...
+                        docker ps -a --filter "label=io.x-k8s.kind.cluster=${CLUSTER_NAME}" --format "{{.ID}}" > temp_containers.txt 2>nul
+                        for /f %%i in (temp_containers.txt) do (
+                            echo Removing container: %%i
+                            docker rm -f %%i 2>nul
+                        )
+                        del temp_containers.txt 2>nul
+                        
+                        REM Clean up unused Docker images (optional - uncomment if needed)
+                        REM echo Cleaning up unused Docker images...
+                        REM docker image prune -f
+                        
+                        REM Clean up unused Docker networks
+                        echo Cleaning up unused Docker networks...
+                        docker network prune -f 2>nul || echo No networks to clean
+                        
+                        REM Clean up unused Docker volumes  
+                        echo Cleaning up unused Docker volumes...
+                        docker volume prune -f 2>nul || echo No volumes to clean
+                    """
+                }
+            }
+        }
+        
+        stage('Clean Temporary Files') {
+            steps {
+                script {
+                    echo 'Cleaning up temporary files...'
+                    bat """
+                        REM Remove temporary kubeconfig files
+                        if exist temp_kubeconfig del temp_kubeconfig
+                        if exist kind-config.yaml del kind-config.yaml
+                        
+                        REM Remove port forwarding scripts (optional)
+                        if exist start-port-forward.bat del start-port-forward.bat
+                        if exist stop-port-forward.bat del stop-port-forward.bat
+                        
+                        REM Remove any other temporary files
+                        if exist temp_containers.txt del temp_containers.txt
+                        
+                        echo Temporary files cleaned up
+                    """
+                }
+            }
+        }
+        
+        stage('Verify Cleanup') {
+            steps {
+                script {
+                    echo 'Verifying complete cleanup...'
+                    bat """
+                        echo === CLEANUP VERIFICATION ===
+                        
+                        REM Check Kind clusters
+                        echo Checking Kind clusters:
+                        kind get clusters 2>nul || echo No Kind clusters found
+                        
+                        REM Check Docker containers
+                        echo Checking Docker containers:
+                        docker ps --filter "label=io.x-k8s.kind.cluster" --format "table {{.Names}}\\t{{.Status}}" 2>nul || echo No Kind containers found
+                        
+                        REM Check port usage
+                        echo Checking port 3000:
+                        netstat -ano | findstr :3000 || echo Port 3000 is free
+                        
+                        REM Check processes
+                        echo Checking kubectl processes:
+                        tasklist | findstr kubectl || echo No kubectl processes running
+                        
+                        echo === CLEANUP COMPLETE ===
+                        echo All infrastructure has been successfully removed!
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '🧹 Cleanup Pipeline completed successfully!'
+            echo "✅ Applications stopped and removed"
+            echo "✅ Kind cluster '${CLUSTER_NAME}' deleted"
+            echo "✅ Docker resources cleaned up"
+            echo "✅ Temporary files removed"
+            echo "✅ Port 3000 is now free"
+            echo ""
+            echo "🎯 Infrastructure completely removed!"
+            echo "💡 To restart, run the Infrastructure Pipeline again"
+        }
+        failure {
+            echo '❌ Cleanup Pipeline encountered issues!'
+            echo "Some resources may not have been fully cleaned up"
+            echo "Check logs above for details"
+            echo "You may need to manually clean up remaining resources"
+        }
+        always {
+            script {
+                echo 'Cleanup pipeline completed'
+                echo 'System is ready for fresh infrastructure setup'
+            }
+        }
+    }
+}

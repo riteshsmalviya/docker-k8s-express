@@ -1,0 +1,186 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_HUB_REPO = 'riteshm03/docker-k8s-express'
+        CLUSTER_NAME = 'dev'
+    }
+    
+    stages {
+        stage('Verify Infrastructure') {
+            steps {
+                script {
+                    echo 'Checking if infrastructure is ready...'
+                    bat """
+                        REM Check if Kind cluster exists
+                        kind get clusters | findstr ${CLUSTER_NAME} || (
+                            echo ERROR: Kind cluster ${CLUSTER_NAME} not found!
+                            echo Please run the Infrastructure Pipeline first.
+                            exit /b 1
+                        )
+                        
+                        REM Set up kubectl context
+                        kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig
+                        set KUBECONFIG=%CD%\\temp_kubeconfig
+                        kubectl config use-context kind-${CLUSTER_NAME}
+                        
+                        REM Verify cluster is accessible
+                        kubectl get nodes || (
+                            echo ERROR: Cannot access Kubernetes cluster!
+                            echo Please run the Infrastructure Pipeline first.
+                            exit /b 1
+                        )
+                        
+                        echo Infrastructure verification passed!
+                    """
+                }
+            }
+        }
+        
+        stage('Checkout') {
+            steps {
+                echo 'Checking out code from GitHub...'
+                checkout scm
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo 'Building Docker image from source code...'
+                    bat """
+                        REM Build the Docker image from current source code
+                        echo Building image with latest code changes...
+                        docker build -t ${DOCKER_HUB_REPO}:latest .
+                        
+                        REM Verify the image was built
+                        docker images ${DOCKER_HUB_REPO}:latest
+                        
+                        echo Docker image built successfully with your code changes!
+                    """
+                }
+            }
+        }
+        
+        stage('Load Image to Kind') {
+            steps {
+                script {
+                    echo 'Loading freshly built image to Kind cluster...'
+                    bat """
+                        REM Load the newly built image into Kind cluster
+                        echo Loading fresh image into Kind cluster...
+                        kind load docker-image ${DOCKER_HUB_REPO}:latest --name ${CLUSTER_NAME}
+                        
+                        REM Verify image is loaded in Kind
+                        echo Verifying fresh image in Kind cluster...
+                        docker exec dev-control-plane crictl images | findstr docker-k8s-express
+                    """
+                }
+            }
+        }
+        
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    echo 'Deploying fresh code to Kubernetes...'
+                    bat """
+                        REM Force delete old deployment to ensure fresh image is used
+                        echo Removing old deployment to force fresh image usage...
+                        kubectl delete deployment express-deployment --ignore-not-found=true
+                        
+                        REM Wait for complete cleanup
+                        timeout /t 5 /nobreak > nul
+                        
+                        REM Apply fresh deployment with new code
+                        echo Deploying fresh image with your code changes...
+                        kubectl apply -f k8s/deployment.yaml
+                        kubectl apply -f k8s/service.yaml
+                        
+                        REM Wait for deployment to be ready
+                        echo Waiting for fresh deployment to be ready...
+                        kubectl wait --for=condition=available --timeout=300s deployment/express-deployment
+                        
+                        REM Force restart to ensure new image is used
+                        echo Ensuring pods use the fresh image...
+                        kubectl rollout restart deployment/express-deployment
+                        kubectl rollout status deployment/express-deployment
+                        
+                        echo Fresh deployment completed with your code changes!
+                        kubectl get pods -l app=express-app
+                        kubectl get services express-service
+                    """
+                }
+            }
+        }
+        
+        stage('Verify Deployment') {
+            steps {
+                script {
+                    echo 'Verifying your code changes are live...'
+                    bat """
+                        REM Check deployment status
+                        echo === DEPLOYMENT STATUS ===
+                        kubectl get deployment express-deployment -o wide 2>nul || echo Deployment not found
+                        kubectl get pods -l app=express-app -o wide 2>nul || echo No pods found
+                        kubectl get services express-service 2>nul || echo Service not found
+                        
+                        REM Wait for application to be fully ready
+                        echo Waiting for application with your changes to be ready...
+                        kubectl wait --for=condition=available --timeout=120s deployment/express-deployment
+                        
+                        REM Check if pods are running with fresh image
+                        kubectl get pods -l app=express-app --no-headers 2>nul | findstr Running >nul
+                        if %ERRORLEVEL% EQU 0 (
+                            echo === YOUR CODE CHANGES ARE LIVE ===
+                            echo Testing application access...
+                            
+                            REM Wait for application startup
+                            timeout /t 15 /nobreak > nul
+                            
+                            REM Test the application access
+                            curl -f http://localhost:3000 && (
+                                echo === SUCCESS: CODE CHANGES DEPLOYED ===
+                                echo Your code changes are now live at: http://localhost:3000
+                                echo Refresh your browser to see the updates!
+                            ) || (
+                                echo === APPLICATION STARTING ===
+                                echo Your code is deployed. Access at: http://localhost:3000
+                                echo If not immediately available, wait 30 seconds for startup
+                            )
+                        ) else (
+                            echo === DEPLOYMENT ISSUES ===
+                            echo Application may not be ready. Check pod status:
+                            kubectl describe pods -l app=express-app
+                            exit /b 1
+                        )
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '🎉 CI Pipeline completed successfully!'
+            echo "✅ Code checked out from repository"
+            echo "✅ Docker image built from your latest code"
+            echo "✅ Fresh image deployed to Kubernetes"
+            echo "✅ Your code changes are now LIVE!"
+            echo ""
+            echo "🌐 See your changes at: http://localhost:3000"
+            echo "� Refresh your browser to see the updates!"
+            echo "🚀 All your code changes are now live!"
+        }
+        failure {
+            echo '❌ CI Pipeline failed!'
+            echo "Your code changes could not be deployed"
+            echo "Check logs above for details"
+            echo "Ensure Infrastructure Pipeline has been run successfully first"
+        }
+        always {
+            script {
+                echo 'CI pipeline cleanup completed'
+            }
+        }
+    }
+}

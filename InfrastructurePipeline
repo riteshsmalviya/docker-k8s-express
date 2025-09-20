@@ -1,0 +1,125 @@
+pipeline {
+    agent any
+    
+    environment {
+        CLUSTER_NAME = 'dev'
+    }
+    
+    stages {
+        stage('Setup Kind Cluster') {
+            steps {
+                script {
+                    echo 'Setting up Kind cluster with port mapping...'
+                    bat """
+                        REM Check if cluster exists
+                        kind get clusters | findstr ${CLUSTER_NAME}
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo Creating Kind cluster with port mapping: ${CLUSTER_NAME}
+                            echo apiVersion: kind.x-k8s.io/v1alpha4 > kind-config.yaml
+                            echo kind: Cluster >> kind-config.yaml
+                            echo nodes: >> kind-config.yaml
+                            echo - role: control-plane >> kind-config.yaml
+                            echo   extraPortMappings: >> kind-config.yaml
+                            echo   - containerPort: 30080 >> kind-config.yaml
+                            echo     hostPort: 3000 >> kind-config.yaml
+                            echo     protocol: TCP >> kind-config.yaml
+                            kind create cluster --name ${CLUSTER_NAME} --config kind-config.yaml
+                        ) else (
+                            echo Kind cluster ${CLUSTER_NAME} already exists - checking port mapping...
+                            docker port dev-control-plane | findstr 3000 || (
+                                echo Recreating cluster with proper port mapping...
+                                kind delete cluster --name ${CLUSTER_NAME}
+                                echo apiVersion: kind.x-k8s.io/v1alpha4 > kind-config.yaml
+                                echo kind: Cluster >> kind-config.yaml
+                                echo nodes: >> kind-config.yaml
+                                echo - role: control-plane >> kind-config.yaml
+                                echo   extraPortMappings: >> kind-config.yaml
+                                echo   - containerPort: 30080 >> kind-config.yaml
+                                echo     hostPort: 3000 >> kind-config.yaml
+                                echo     protocol: TCP >> kind-config.yaml
+                                kind create cluster --name ${CLUSTER_NAME} --config kind-config.yaml
+                            )
+                        )
+                        
+                        REM Ensure kubeconfig is properly set
+                        echo Setting up kubeconfig...
+                        kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig
+                        set KUBECONFIG=%CD%\\temp_kubeconfig
+                        
+                        REM Set kubectl context
+                        kubectl config use-context kind-${CLUSTER_NAME}
+                        
+                        REM Verify cluster connectivity
+                        echo Testing cluster connectivity...
+                        kubectl get nodes
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo Cluster not accessible, recreating...
+                            kind delete cluster --name ${CLUSTER_NAME}
+                            kind create cluster --name ${CLUSTER_NAME} --config kind-config.yaml
+                            kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig
+                            kubectl config use-context kind-${CLUSTER_NAME}
+                        )
+                        
+                        echo Cluster is ready with port mapping!
+                        kubectl get nodes
+                        kubectl cluster-info
+                        echo Port mapping: localhost:3000 -> cluster:30080
+                    """
+                }
+            }
+        }
+        
+        stage('Verify Infrastructure') {
+            steps {
+                script {
+                    echo 'Verifying infrastructure readiness...'
+                    bat """
+                        REM Check cluster status
+                        echo === CLUSTER STATUS ===
+                        kubectl get nodes -o wide
+                        
+                        REM Check system pods
+                        echo === SYSTEM PODS ===
+                        kubectl get pods -n kube-system
+                        
+                        REM Verify port mapping
+                        echo === PORT MAPPING ===
+                        docker port dev-control-plane | findstr 3000 && (
+                            echo Port mapping is active: localhost:3000 -> cluster:30080
+                        ) || (
+                            echo WARNING: Port mapping may not be active
+                        )
+                        
+                        REM Create namespace if needed (optional)
+                        kubectl get namespace default || kubectl create namespace default
+                        
+                        echo === INFRASTRUCTURE READY ===
+                        echo Cluster is ready for deployments!
+                    """
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '🏗️ Infrastructure Pipeline completed successfully!'
+            echo "✅ Kind cluster: ${CLUSTER_NAME} is running"
+            echo "✅ Port mapping: localhost:3000 -> cluster:30080"
+            echo "✅ Kubernetes API is accessible"
+            echo "✅ Ready for CI deployments"
+            echo ""
+            echo "🚀 Infrastructure is ready! Run the CI pipeline to deploy your application."
+        }
+        failure {
+            echo '❌ Infrastructure Pipeline failed!'
+            echo "Check logs above for details"
+            echo "Fix infrastructure issues before running CI pipeline"
+        }
+        always {
+            script {
+                echo 'Infrastructure pipeline cleanup completed'
+            }
+        }
+    }
+}
