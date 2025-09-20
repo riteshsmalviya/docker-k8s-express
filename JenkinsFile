@@ -22,6 +22,9 @@ pipeline {
                             echo Kind cluster ${CLUSTER_NAME} already exists
                         )
                         
+                        REM Set kubectl context to Kind cluster
+                        kubectl config use-context kind-${CLUSTER_NAME}
+                        
                         REM Verify cluster is ready
                         kubectl cluster-info --context kind-${CLUSTER_NAME}
                         kubectl get nodes
@@ -62,10 +65,18 @@ pipeline {
                 script {
                     echo 'Deploying to Kubernetes...'
                     bat """
+                        REM Apply deployment and service
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
+                        
+                        REM Force delete any stuck pods first
+                        kubectl delete pods -l app=express-app --force --grace-period=0 2>nul || echo No pods to force delete
+                        
+                        REM Update deployment with new image
                         kubectl set image deployment/express-deployment express=${DOCKER_HUB_REPO}:${IMAGE_TAG} --record
-                        kubectl rollout status deployment/express-deployment
+                        
+                        REM Wait for rollout with timeout
+                        kubectl rollout status deployment/express-deployment --timeout=300s
                     """
                 }
             }
@@ -76,8 +87,15 @@ pipeline {
                 script {
                     echo 'Verifying deployment...'
                     bat """
-                        kubectl get pods -l app=express-app
+                        REM Check deployment status
+                        kubectl get deployment express-deployment
+                        kubectl get pods -l app=express-app -o wide
                         kubectl get services express-service
+                        
+                        REM Check for any issues
+                        kubectl describe deployment express-deployment
+                        kubectl get events --sort-by=.metadata.creationTimestamp | findstr express
+                        
                         echo Application is accessible at: http://localhost:30080
                         echo Or use port-forward: kubectl port-forward service/express-service 3000:3000
                     """
