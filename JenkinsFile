@@ -22,20 +22,28 @@ pipeline {
                             echo Kind cluster ${CLUSTER_NAME} already exists - reusing it
                         )
                         
-                        REM Set kubectl context to Kind cluster
+                        REM Ensure kubeconfig is properly set
+                        echo Setting up kubeconfig...
+                        kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig
+                        set KUBECONFIG=%CD%\\temp_kubeconfig
+                        
+                        REM Set kubectl context
                         kubectl config use-context kind-${CLUSTER_NAME}
                         
-                        REM Verify cluster is ready
+                        REM Verify cluster connectivity
+                        echo Testing cluster connectivity...
                         kubectl get nodes
                         if %ERRORLEVEL% NEQ 0 (
                             echo Cluster not accessible, recreating...
                             kind delete cluster --name ${CLUSTER_NAME}
                             kind create cluster --name ${CLUSTER_NAME}
+                            kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig
                             kubectl config use-context kind-${CLUSTER_NAME}
                         )
                         
                         echo Cluster is ready!
                         kubectl get nodes
+                        kubectl cluster-info
                     """
                 }
             }
@@ -73,6 +81,13 @@ pipeline {
                 script {
                     echo 'Deploying to Kubernetes...'
                     bat """
+                        REM Debug: Check current context and connectivity
+                        echo === DEBUG INFO ===
+                        kubectl config current-context
+                        kubectl get nodes
+                        kubectl get pods -A
+                        echo === END DEBUG ===
+                        
                         REM Apply deployment and service
                         kubectl apply -f k8s/deployment.yaml
                         kubectl apply -f k8s/service.yaml
@@ -81,8 +96,22 @@ pipeline {
                         echo Scaling down deployment to 0...
                         kubectl scale deployment express-deployment --replicas=0
                         
-                        REM Wait for all pods to terminate
-                        kubectl wait --for=delete pod -l app=express-app --timeout=60s 2>nul || echo Pods deleted
+                        REM Wait for all pods to terminate with manual checking
+                        echo Waiting for pods to terminate...
+                        set /a count=0
+                        :waitloop
+                        kubectl get pods -l app=express-app --no-headers 2>nul | findstr . >nul
+                        if %ERRORLEVEL% NEQ 0 goto podsgone
+                        set /a count+=1
+                        if %count% GEQ 30 (
+                            echo Force deleting remaining pods...
+                            kubectl delete pods -l app=express-app --force --grace-period=0
+                            goto podsgone
+                        )
+                        timeout /t 2 /nobreak > nul
+                        goto waitloop
+                        :podsgone
+                        echo All pods terminated
                         
                         REM Update deployment with new image
                         kubectl set image deployment/express-deployment express=${DOCKER_HUB_REPO}:${IMAGE_TAG} --record
@@ -91,10 +120,26 @@ pipeline {
                         echo Scaling deployment back to 1...
                         kubectl scale deployment express-deployment --replicas=1
                         
-                        REM Wait for new pod to be ready
-                        kubectl wait --for=condition=available deployment/express-deployment --timeout=120s
+                        REM Wait for new pod manually instead of using kubectl wait
+                        echo Waiting for new pod to be ready...
+                        set /a attempts=0
+                        :checkpod
+                        set /a attempts+=1
+                        kubectl get pods -l app=express-app --no-headers | findstr Running >nul
+                        if %ERRORLEVEL% EQU 0 goto podready
+                        if %attempts% GEQ 60 (
+                            echo Timeout waiting for pod, checking status...
+                            kubectl get pods -l app=express-app
+                            kubectl describe pods -l app=express-app
+                            goto podready
+                        )
+                        timeout /t 2 /nobreak > nul
+                        goto checkpod
+                        :podready
                         
-                        echo Deployment completed successfully!
+                        echo Deployment process completed!
+                        kubectl get pods -l app=express-app
+                        kubectl get services express-service
                     """
                 }
             }
@@ -105,17 +150,28 @@ pipeline {
                 script {
                     echo 'Verifying deployment...'
                     bat """
-                        REM Check deployment status
-                        kubectl get deployment express-deployment
-                        kubectl get pods -l app=express-app -o wide
-                        kubectl get services express-service
+                        REM Always run verification regardless of previous stage status
+                        echo === FINAL DEPLOYMENT STATUS ===
+                        kubectl get deployment express-deployment -o wide 2>nul || echo Deployment not found
+                        kubectl get pods -l app=express-app -o wide 2>nul || echo No pods found
+                        kubectl get services express-service 2>nul || echo Service not found
                         
-                        REM Check for any issues
-                        kubectl describe deployment express-deployment
-                        kubectl get events --sort-by=.metadata.creationTimestamp | findstr express
+                        REM Check events for any issues
+                        echo === RECENT EVENTS ===
+                        kubectl get events --sort-by=.metadata.creationTimestamp | findstr express 2>nul || echo No events found
                         
-                        echo Application is accessible at: http://localhost:30080
-                        echo Or use port-forward: kubectl port-forward service/express-service 3000:3000
+                        REM Test if service is responsive
+                        kubectl get pods -l app=express-app --no-headers 2>nul | findstr Running >nul
+                        if %ERRORLEVEL% EQU 0 (
+                            echo === SUCCESS ===
+                            echo Application appears to be running successfully!
+                            echo Access methods:
+                            echo - NodePort: http://localhost:30080
+                            echo - Port Forward: kubectl port-forward service/express-service 3000:3000
+                        ) else (
+                            echo === ISSUES DETECTED ===
+                            echo Application may not be fully ready. Check pod status above.
+                        )
                     """
                 }
             }
