@@ -3,7 +3,6 @@ pipeline {
     
     environment {
         DOCKER_HUB_REPO = 'riteshm03/docker-k8s-express'
-        IMAGE_TAG = "${BUILD_NUMBER}"
         CLUSTER_NAME = 'dev'
     }
     
