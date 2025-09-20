@@ -89,7 +89,7 @@ pipeline {
                         kubectl delete deployment express-deployment --ignore-not-found=true
                         
                         REM Wait for complete cleanup
-                        timeout /t 5 /nobreak > nul
+                        ping 127.0.0.1 -n 5 > nul
                         
                         REM Apply fresh deployment with new code
                         echo Deploying fresh image with your code changes...
@@ -135,7 +135,7 @@ pipeline {
                             echo Testing application access...
                             
                             REM Wait for application startup
-                            timeout /t 15 /nobreak > nul
+                            ping 127.0.0.1 -n 15 > nul
                             
                             REM Test the application access
                             curl -f http://localhost:3000 && (

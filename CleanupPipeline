@@ -19,7 +19,7 @@ pipeline {
                     echo 'Proceeding with cleanup in 10 seconds...'
                     
                     bat """
-                        timeout /t 10 /nobreak > nul
+                        ping 127.0.0.1 -n 10 > nul
                         echo Starting infrastructure cleanup...
                     """
                 }
@@ -45,7 +45,7 @@ pipeline {
                             
                             REM Wait for graceful shutdown
                             echo Waiting for graceful application shutdown...
-                            timeout /t 10 /nobreak > nul
+                            ping 127.0.0.1 -n 10 > nul
                             
                             REM Show final status
                             kubectl get all 2>nul || echo No resources found
@@ -94,12 +94,10 @@ pipeline {
                         
                         REM Clean up Kind-related containers
                         echo Cleaning up Kind containers...
-                        docker ps -a --filter "label=io.x-k8s.kind.cluster=${CLUSTER_NAME}" --format "{{.ID}}" > temp_containers.txt 2>nul
-                        for /f %%i in (temp_containers.txt) do (
+                        for /f "tokens=*" %%i in ('docker ps -aq --filter "label=io.x-k8s.kind.cluster=dev" 2^>nul') do (
                             echo Removing container: %%i
                             docker rm -f %%i 2>nul
                         )
-                        del temp_containers.txt 2>nul
                         
                         REM Clean up unused Docker images (optional - uncomment if needed)
                         REM echo Cleaning up unused Docker images...
@@ -132,6 +130,7 @@ pipeline {
                         
                         REM Remove any other temporary files
                         if exist temp_containers.txt del temp_containers.txt
+                        for %%f in (*.log *.tmp) do del "%%f" 2>nul
                         
                         echo Temporary files cleaned up
                     """
