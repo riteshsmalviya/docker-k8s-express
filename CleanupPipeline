@@ -32,7 +32,8 @@ pipeline {
                     echo 'Stopping running applications...'
                     bat """
                         REM Try to set kubectl context if cluster exists
-                        kind get clusters | findstr ${CLUSTER_NAME} && (
+                        kind get clusters | findstr ${CLUSTER_NAME}
+                        if %ERRORLEVEL% EQU 0 (
                             echo Setting up kubectl context...
                             kind get kubeconfig --name ${CLUSTER_NAME} > temp_kubeconfig 2>nul
                             set KUBECONFIG=%CD%\\temp_kubeconfig
@@ -49,7 +50,7 @@ pipeline {
                             
                             REM Show final status
                             kubectl get all 2>nul || echo No resources found
-                        ) || (
+                        ) else (
                             echo No cluster found or cluster already deleted
                         )
                     """
@@ -63,19 +64,21 @@ pipeline {
                     echo 'Deleting Kind cluster...'
                     bat """
                         REM Check if cluster exists
-                        kind get clusters | findstr ${CLUSTER_NAME} && (
+                        kind get clusters | findstr ${CLUSTER_NAME}
+                        if %ERRORLEVEL% EQU 0 (
                             echo Deleting Kind cluster: ${CLUSTER_NAME}
                             kind delete cluster --name ${CLUSTER_NAME}
                             echo Cluster deleted successfully
-                        ) || (
+                        ) else (
                             echo Cluster ${CLUSTER_NAME} not found - may already be deleted
                         )
                         
                         REM Verify cluster is gone
                         echo Verifying cluster deletion...
-                        kind get clusters | findstr ${CLUSTER_NAME} && (
+                        kind get clusters | findstr ${CLUSTER_NAME}
+                        if %ERRORLEVEL% EQU 0 (
                             echo WARNING: Cluster still exists!
-                        ) || (
+                        ) else (
                             echo ✅ Cluster successfully deleted
                         )
                     """
@@ -147,19 +150,31 @@ pipeline {
                         
                         REM Check Kind clusters
                         echo Checking Kind clusters:
-                        kind get clusters 2>nul || echo No Kind clusters found
+                        kind get clusters 2>nul
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo No Kind clusters found
+                        )
                         
                         REM Check Docker containers
                         echo Checking Docker containers:
-                        docker ps --filter "label=io.x-k8s.kind.cluster" --format "table {{.Names}}\\t{{.Status}}" 2>nul || echo No Kind containers found
+                        docker ps --filter "label=io.x-k8s.kind.cluster" --format "table {{.Names}}\\t{{.Status}}" 2>nul
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo No Kind containers found
+                        )
                         
                         REM Check port usage
                         echo Checking port 3000:
-                        netstat -ano | findstr :3000 || echo Port 3000 is free
+                        netstat -ano | findstr :3000
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo Port 3000 is free
+                        )
                         
                         REM Check processes
                         echo Checking kubectl processes:
-                        tasklist | findstr kubectl || echo No kubectl processes running
+                        tasklist | findstr kubectl
+                        if %ERRORLEVEL% NEQ 0 (
+                            echo No kubectl processes running
+                        )
                         
                         echo === CLEANUP COMPLETE ===
                         echo All infrastructure has been successfully removed!
