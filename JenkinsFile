@@ -3,7 +3,29 @@ pipeline {
     
     environment {
         DOCKER_HUB_REPO = 'riteshm03/docker-k8s-express'
-        IMAGE_TAG = "${BUILD_NUMBER}"
+        IMAGE_T    post {
+        success {
+            echo '🎉 Pipeline completed successfully!'
+            echo "✅ Kind cluster: ${CLUSTER_NAME} is running"
+            echo "✅ Image built: ${DOCKER_HUB_REPO}:${IMAGE_TAG}"
+            echo "✅ Deployed to Kubernetes"
+            echo "✅ Access your app at: http://localhost:30080"
+        }
+        failure {
+            echo '❌ Pipeline failed!'
+            echo "Check logs above for details"
+        }
+        always {
+            script {
+                echo 'Cleaning up local images...'
+                try {
+                    bat "docker rmi ${DOCKER_HUB_REPO}:${IMAGE_TAG} 2>nul"
+                } catch (Exception e) {
+                    echo "Image cleanup completed (or no image to clean)"
+                }
+            }
+        }
+    }MBER}"
         CLUSTER_NAME = 'dev'
     }
     
@@ -20,14 +42,33 @@ pipeline {
                             kind create cluster --name ${CLUSTER_NAME}
                         ) else (
                             echo Kind cluster ${CLUSTER_NAME} already exists
+                            REM Recreate cluster to ensure accessibility from Jenkins
+                            echo Recreating cluster for Jenkins accessibility...
+                            kind delete cluster --name ${CLUSTER_NAME}
+                            kind create cluster --name ${CLUSTER_NAME}
                         )
+                        
+                        REM Wait a moment for cluster to be ready
+                        timeout /t 10 /nobreak > nul
                         
                         REM Set kubectl context to Kind cluster
                         kubectl config use-context kind-${CLUSTER_NAME}
                         
-                        REM Verify cluster is ready
-                        kubectl cluster-info --context kind-${CLUSTER_NAME}
+                        REM Verify cluster is ready with retry
+                        set /a attempts=0
+                        :retry
+                        set /a attempts+=1
+                        echo Attempt %attempts% to connect to cluster...
                         kubectl get nodes
+                        if %ERRORLEVEL% EQU 0 goto success
+                        if %attempts% LSS 5 (
+                            timeout /t 5 /nobreak > nul
+                            goto retry
+                        )
+                        echo Failed to connect to cluster after 5 attempts
+                        exit /b 1
+                        :success
+                        echo Cluster is ready!
                     """
                 }
             }
