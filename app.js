@@ -278,7 +278,7 @@ app.get('/', (req, res) => {
                     <div class="stage-details">
                         <h4>Components</h4>
                         <ul>
-                            <li>Express App (app.js, routes)</li>
+                            <li>Express App</li>
                             <li>Package.json dependencies</li>
                             <li>Dockerfile for containerization</li>
                             <li>Kubernetes manifests (YAML)</li>
